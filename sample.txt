@@ -1,0 +1,2 @@
+Networks connect devices.
+Cloud services process events.

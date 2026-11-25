@@ -1,0 +1,3 @@
+CloudNotes is running on my MacBook.
+AWS Lambda processes uploaded notes automatically.
+The results are stored in DynamoDB.

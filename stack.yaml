@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudNotes event-driven AWS student project
+Resources:
+  Inbox:
+    Type: AWS::S3::Bucket
+    Properties:
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+  Results:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: note, AttributeType: S}
+      KeySchema:
+        - {AttributeName: note, KeyType: HASH}
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProcessNotes
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${Inbox.Arn}/notes/*'
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt Results.Arn
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt Logs.Arn
+  Worker:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt Role.Arn
+      LoggingConfig:
+        LogGroup: !Ref Logs
+      Environment:
+        Variables: {TABLE: !Ref Results}
+      Code:
+        ZipFile: |
+          # INSERT_ANALYZER
+  UploadRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source: [aws.s3]
+        detail-type: [Object Created]
+        detail:
+          bucket: {name: [!Ref Inbox]}
+          object:
+            key:
+              - prefix: notes/
+      Targets:
+        - Id: Analyze
+          Arn: !GetAtt Worker.Arn
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      FunctionName: !Ref Worker
+      SourceArn: !GetAtt UploadRule.Arn
+Outputs:
+  Bucket: {Value: !Ref Inbox}
+  Table: {Value: !Ref Results}
+  LogGroup: {Value: !Ref Logs}
